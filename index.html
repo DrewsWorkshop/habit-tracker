@@ -92,8 +92,15 @@ header{
 }
 .icon-btn:active{background:var(--green);color:#000;}
 
-main{flex:1;padding:0 14px calc(var(--tabbar-h) + var(--safe-bot) + 26px);}
-.view{display:none;} .view.on{display:block;}
+main{flex:1;display:flex;flex-direction:column;
+  padding:0 14px calc(var(--tabbar-h) + var(--safe-bot) + 26px);}
+.view{display:none;}
+.view.on{display:block;flex:1 0 auto;}
+/* Log is the only view shorter than the screen, so it lays itself out as a
+   column and lets the habit panel absorb the slack — otherwise the action
+   buttons float well above the tab bar. */
+#v-log.on{display:flex;flex-direction:column;}
+#habitPanel{flex:1 0 auto;}
 
 /* tab bar */
 #tabbar{
@@ -334,7 +341,7 @@ td.hot{color:var(--ink);}
         <input type="date" id="datePick" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none">
       </div>
 
-      <div class="panel">
+      <div class="panel" id="habitPanel">
         <div class="panel-h">HABITS <span class="sub" id="editHint">tap to log</span></div>
         <div id="habitList"></div>
       </div>
