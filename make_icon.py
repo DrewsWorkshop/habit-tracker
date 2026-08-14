@@ -1,8 +1,9 @@
 """
 Generates the Habit Tracker Home Screen icons.
 
-Solid background with "HT" drawn as hard-edged pixel-art letterforms on a 24x24
-cell grid -- H in neon pink, T in neon cyan, with a soft neon bloom behind them.
+Flat two-colour mark: a solid mint background with "HT" in solid purple,
+drawn as terminal/bitmap letterforms on a 24x24 cell grid. Uniform square
+strokes, no glow, no shadow, no bevel, no gradient -- just the two colours.
 
 Pure standard library (zlib + struct) -- no Pillow, no network.
 
@@ -16,14 +17,10 @@ import struct
 import zlib
 
 SUPER = 1008        # render resolution (divisible by 24), downsampled per target
-GRID = 24           # logical pixel-art cells across the icon
+GRID = 24           # logical cells across the icon
 
-BG = (13, 10, 26)           # solid background
-PINK = (255, 46, 151)
-CYAN = (0, 229, 255)
-FIELD = 224                 # resolution of the glow distance field
-SEAM = 0.10                 # seam inset around each lit cell, in cell units
-SEAM_DARK = 0.80            # how far that seam blends back toward the background
+MINT = (127, 227, 192)      # solid background
+PURPLE = (91, 33, 182)      # solid text
 
 
 # ---------------------------------------------------------------- png writer
@@ -48,7 +45,7 @@ def write_png(path, pixels, w, h):
 
 
 # ---------------------------------------------------------------- letterforms
-# 8 cells wide, 12 tall, 2-cell strokes throughout.
+# 8 cells wide, 12 tall, uniform 2-cell strokes -- console-font proportions.
 H_ROWS = [
     "XX....XX",
     "XX....XX",
@@ -78,7 +75,7 @@ T_ROWS = [
     "...XX...",
 ]
 
-# "HT" block is 18 x 12 cells -> centred in the 24 x 24 grid with 3/6 padding.
+# The "HT" block is 18 x 12 cells -> centred in the 24 x 24 grid (3 / 6 padding).
 H_ORIGIN = (3, 6)
 T_ORIGIN = (13, 6)
 
@@ -90,81 +87,23 @@ def cells(rows, origin):
             for x, ch in enumerate(row) if ch == "X"}
 
 
-H_CELLS = cells(H_ROWS, H_ORIGIN)
-T_CELLS = cells(T_ROWS, T_ORIGIN)
+INK = cells(H_ROWS, H_ORIGIN) | cells(T_ROWS, T_ORIGIN)
 
 
-def distance_field(cell_set):
-    """Distance (in grid units) from each sample point to the nearest lit cell."""
-    rects = [(cx, cy, cx + 1, cy + 1) for cx, cy in cell_set]
-    field = []
-    for j in range(FIELD):
-        gy = (j + 0.5) / FIELD * GRID
-        for i in range(FIELD):
-            gx = (i + 0.5) / FIELD * GRID
-            best = 1e9
-            for x0, y0, x1, y1 in rects:
-                dx = x0 - gx if gx < x0 else (gx - x1 if gx > x1 else 0.0)
-                dy = y0 - gy if gy < y0 else (gy - y1 if gy > y1 else 0.0)
-                d = dx * dx + dy * dy
-                if d < best:
-                    best = d
-                    if d == 0.0:
-                        break
-            field.append(math.sqrt(best))
-    return field
-
-
-def sample(field, u, v):
-    """Bilinear sample of a FIELD x FIELD distance map at u, v in 0..1."""
-    fx = min(FIELD - 1.001, max(0.0, u * FIELD - 0.5))
-    fy = min(FIELD - 1.001, max(0.0, v * FIELD - 0.5))
-    i, j = int(fx), int(fy)
-    tx, ty = fx - i, fy - j
-    a = field[j * FIELD + i]
-    b = field[j * FIELD + i + 1]
-    c = field[(j + 1) * FIELD + i]
-    d = field[(j + 1) * FIELD + i + 1]
-    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
-
-
-def render(size, fh, ft):
+def render(size):
     px = []
     for y in range(size):
-        v = (y + 0.5) / size
-        gy = int(v * GRID)
+        gy = int((y + 0.5) / size * GRID)
         for x in range(size):
-            u = (x + 0.5) / size
-            gx = int(u * GRID)
-            cell = (gx, gy)
-
-            lit = PINK if cell in H_CELLS else CYAN if cell in T_CELLS else None
-            if lit:
-                # Darken a seam around every cell so the individual pixels of the
-                # letterform stay visible -- this is what reads as "pixel art"
-                # rather than just a bold sans-serif H and T.
-                fx, fy = u * GRID - gx, v * GRID - gy
-                edge = min(fx, 1.0 - fx, fy, 1.0 - fy)
-                if edge < SEAM:
-                    k = (1.0 - edge / SEAM) * SEAM_DARK
-                    lit = tuple(lit[i] + (BG[i] - lit[i]) * k for i in range(3))
-                px.append(lit)
-                continue
-
-            # solid background plus the bloom shed by each letter
-            gh = math.exp(-sample(fh, u, v) * 2.6)
-            gt = math.exp(-sample(ft, u, v) * 2.6)
-            r = BG[0] + PINK[0] * gh * 0.55 + CYAN[0] * gt * 0.55
-            g = BG[1] + PINK[1] * gh * 0.55 + CYAN[1] * gt * 0.55
-            b = BG[2] + PINK[2] * gh * 0.55 + CYAN[2] * gt * 0.55
-            px.append((min(255.0, r), min(255.0, g), min(255.0, b)))
+            gx = int((x + 0.5) / size * GRID)
+            px.append(PURPLE if (gx, gy) in INK else MINT)
     return px
 
 
 def box_resize(src, src_size, dst_size):
-    """Area-average resize. Handles non-integer ratios (1008 -> 180)."""
+    """Area-average resize; antialiases the letter edges. Handles 1008 -> 180."""
     if src_size == dst_size:
-        return [(int(c[0] + .5), int(c[1] + .5), int(c[2] + .5)) for c in src]
+        return list(src)
     scale = src_size / dst_size
     out = []
     for y in range(dst_size):
@@ -191,10 +130,8 @@ def box_resize(src, src_size, dst_size):
 
 
 if __name__ == "__main__":
-    print("building glow fields ...")
-    fh, ft = distance_field(H_CELLS), distance_field(T_CELLS)
     print(f"rendering {SUPER}x{SUPER} ...")
-    big = render(SUPER, fh, ft)
+    big = render(SUPER)
     for target in (512, 192, 180):
         name = f"icon-{target}.png"
         write_png(name, box_resize(big, SUPER, target), target, target)

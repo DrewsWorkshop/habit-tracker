@@ -78,18 +78,18 @@ rounded-corner mask, so the artwork is deliberately full-bleed square.
 
 ## Regenerating the icon
 
-`make_icon.py` draws the logo from scratch: a solid background with **HT** in
-hard-edged pixel-art letterforms on a 24×24 cell grid, H in neon pink, T in neon
-cyan, each pixel separated by a dark seam so the blocks stay legible. Writes
-`icon-180.png`, `icon-192.png` and `icon-512.png`. Pure Python standard library —
-no Pillow, no downloads.
+`make_icon.py` draws the logo from scratch: a flat two-colour mark, solid mint
+background with **HT** in solid purple, drawn as terminal/bitmap letterforms on a
+24×24 cell grid with uniform square strokes. No glow, shadow, bevel or gradient.
+Writes `icon-180.png`, `icon-192.png` and `icon-512.png`. Pure Python standard
+library — no Pillow, no downloads.
 
 ```bash
 python make_icon.py
 ```
 
-Tweak `H_ROWS` / `T_ROWS` to change the letterforms, `SEAM` to change how
-pronounced the pixel grid is.
+Tweak `MINT` / `PURPLE` for the colours and `H_ROWS` / `T_ROWS` for the
+letterforms — they are literal ASCII bitmaps, so editing them edits the glyphs.
 
 ## Running locally
 
