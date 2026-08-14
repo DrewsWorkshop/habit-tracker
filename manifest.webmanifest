@@ -1,6 +1,6 @@
 {
-  "name": "Neon Habits",
-  "short_name": "Neon Habits",
+  "name": "Habit Tracker",
+  "short_name": "Habit Tracker",
   "description": "An offline synthwave habit tracker with logging, graphs and stats.",
   "start_url": "./index.html",
   "scope": "./",

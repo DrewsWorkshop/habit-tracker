@@ -1,8 +1,10 @@
 """
-Generates the Neon Habits Home Screen icons.
+Generates the Habit Tracker Home Screen icons.
+
+Solid background with "HT" drawn as hard-edged pixel-art letterforms on a 24x24
+cell grid -- H in neon pink, T in neon cyan, with a soft neon bloom behind them.
 
 Pure standard library (zlib + struct) -- no Pillow, no network.
-Renders a synthwave scene at 4x then box-downsamples for antialiasing.
 
     python make_icon.py
 
@@ -13,22 +15,29 @@ import math
 import struct
 import zlib
 
-SUPER = 1024  # render resolution, downsampled to each target size
+SUPER = 1008        # render resolution (divisible by 24), downsampled per target
+GRID = 24           # logical pixel-art cells across the icon
+
+BG = (13, 10, 26)           # solid background
+PINK = (255, 46, 151)
+CYAN = (0, 229, 255)
+FIELD = 224                 # resolution of the glow distance field
+SEAM = 0.10                 # seam inset around each lit cell, in cell units
+SEAM_DARK = 0.80            # how far that seam blends back toward the background
 
 
 # ---------------------------------------------------------------- png writer
 def write_png(path, pixels, w, h):
-    """pixels: flat list of (r, g, b) tuples, length w*h."""
+    """pixels: flat list of (r, g, b) int tuples, length w*h."""
     raw = bytearray()
     for y in range(h):
         raw.append(0)  # filter type 0 (None)
-        row = pixels[y * w:(y + 1) * w]
-        for r, g, b in row:
+        for r, g, b in pixels[y * w:(y + 1) * w]:
             raw += bytes((r, g, b))
 
     def chunk(tag, data):
-        c = struct.pack(">I", len(data)) + tag + data
-        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
     png = b"\x89PNG\r\n\x1a\n"
     png += chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
@@ -38,146 +47,124 @@ def write_png(path, pixels, w, h):
         f.write(png)
 
 
-# ---------------------------------------------------------------- colour math
-def lerp(a, b, t):
-    return a + (b - a) * t
-
-
-def mix(c1, c2, t):
-    t = max(0.0, min(1.0, t))
-    return tuple(lerp(c1[i], c2[i], t) for i in range(3))
-
-
-def ramp(stops, t):
-    """stops: [(pos, (r,g,b)), ...] sorted by pos."""
-    t = max(0.0, min(1.0, t))
-    for i in range(len(stops) - 1):
-        p0, c0 = stops[i]
-        p1, c1 = stops[i + 1]
-        if p0 <= t <= p1:
-            return mix(c0, c1, (t - p0) / (p1 - p0) if p1 > p0 else 0.0)
-    return stops[-1][1]
-
-
-def screen(base, add, amount):
-    """Additive-ish blend that never clips ugly."""
-    return tuple(min(255.0, base[i] + add[i] * amount) for i in range(3))
-
-
-def seg_dist(px, py, x1, y1, x2, y2):
-    dx, dy = x2 - x1, y2 - y1
-    L = dx * dx + dy * dy
-    t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / L))
-    return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
-
-
-# ---------------------------------------------------------------- the scene
-BG_TOP = (7, 6, 14)
-BG_BOT = (37, 15, 67)
-PINK = (255, 46, 151)
-CYAN = (0, 229, 255)
-PURPLE = (176, 108, 255)
-WHITE = (255, 255, 255)
-
-SUN_STOPS = [
-    (0.00, (255, 224, 102)),
-    (0.34, (255, 154, 60)),
-    (0.72, (255, 46, 151)),
-    (1.00, (176, 108, 255)),
+# ---------------------------------------------------------------- letterforms
+# 8 cells wide, 12 tall, 2-cell strokes throughout.
+H_ROWS = [
+    "XX....XX",
+    "XX....XX",
+    "XX....XX",
+    "XX....XX",
+    "XX....XX",
+    "XXXXXXXX",
+    "XXXXXXXX",
+    "XX....XX",
+    "XX....XX",
+    "XX....XX",
+    "XX....XX",
+    "XX....XX",
+]
+T_ROWS = [
+    "XXXXXXXX",
+    "XXXXXXXX",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
+    "...XX...",
 ]
 
-HORIZON = 0.615   # y of the horizon, in 0..1
-SUN_CY = 0.435
-SUN_R = 0.255
+# "HT" block is 18 x 12 cells -> centred in the 24 x 24 grid with 3/6 padding.
+H_ORIGIN = (3, 6)
+T_ORIGIN = (13, 6)
 
 
-def shade(u, v):
-    """u, v in 0..1 -> (r, g, b) float tuple."""
-    # backdrop gradient
-    col = ramp([(0.0, BG_TOP), (0.45, (11, 7, 24)), (0.70, (21, 11, 46)), (1.0, BG_BOT)], v)
-
-    # sun glow halo
-    d = math.hypot(u - 0.5, v - SUN_CY)
-    halo = max(0.0, 1.0 - d / (SUN_R * 2.25))
-    col = screen(col, PINK, halo ** 2.4 * 0.55)
-
-    # the sun disc, with retro scanline gaps in its lower half
-    if d < SUN_R:
-        t = (v - (SUN_CY - SUN_R)) / (2 * SUN_R)
-        sun = ramp(SUN_STOPS, t)
-        band = 1.0
-        if t > 0.42:
-            cyc = (v * 34.0) % 1.0                    # bands tied to absolute v
-            gap = 0.30 + 0.32 * ((t - 0.42) / 0.58)   # gaps widen toward the bottom
-            band = 0.0 if cyc < gap else 1.0
-        edge = min(1.0, (SUN_R - d) / (SUN_R * 0.035))  # antialias the rim
-        col = mix(col, sun, band * edge)
-
-    # horizon beam
-    hd = abs(v - HORIZON)
-    beam = max(0.0, 1.0 - hd / 0.016)
-    if beam > 0:
-        tint = mix(CYAN, PINK, abs(u - 0.5) * 2 if u > 0.5 else 0.0)
-        tint = mix(CYAN, tint, 1.0)
-        centre = max(0.0, 1.0 - abs(u - 0.5) * 1.6)
-        col = screen(col, mix(tint, WHITE, centre ** 2), beam ** 1.5 * 0.95)
-    col = screen(col, PINK, max(0.0, 1.0 - hd / 0.09) ** 3 * 0.30)
-
-    # perspective grid below the horizon
-    if v > HORIZON:
-        t = (v - HORIZON) / (1.0 - HORIZON)     # 0 at horizon, 1 at bottom
-        lw = 0.0016 + 0.0060 * t                 # lines thicken toward the viewer
-
-        # converging verticals
-        best = 9.0
-        for k in range(-13, 14):
-            if k == 0:
-                continue
-            x = 0.5 + k * 0.052 * t
-            best = min(best, abs(u - x))
-        gv = max(0.0, 1.0 - best / lw)
-
-        # receding horizontals, bunched near the horizon
-        gh = 0.0
-        for n in range(1, 16):
-            tn = 1.0 - 1.0 / (1.0 + n * 0.30)
-            gh = max(gh, max(0.0, 1.0 - abs(t - tn) / (lw * 1.3)))
-
-        g = max(gv, gh) * (0.30 + 0.70 * t)
-        col = screen(col, mix(PURPLE, PINK, t), g * 0.85)
-
-    # neon check mark, front and centre
-    cd = min(
-        seg_dist(u, v, 0.325, 0.470, 0.445, 0.585),
-        seg_dist(u, v, 0.445, 0.585, 0.690, 0.315),
-    )
-    stroke, soft = 0.037, 0.020
-    if cd < stroke + soft * 3:
-        col = screen(col, CYAN, max(0.0, 1.0 - cd / (stroke + soft * 3)) ** 2.2 * 0.75)
-        if cd < stroke:
-            aa = min(1.0, (stroke - cd) / 0.006)
-            col = mix(col, mix(WHITE, CYAN, min(1.0, cd / stroke)), aa)
-
-    # corner vignette
-    vg = math.hypot((u - 0.5) * 1.05, (v - 0.46) * 1.05)
-    col = mix(col, (4, 2, 10), max(0.0, (vg - 0.52)) * 1.5)
-    return col
+def cells(rows, origin):
+    ox, oy = origin
+    return {(ox + x, oy + y)
+            for y, row in enumerate(rows)
+            for x, ch in enumerate(row) if ch == "X"}
 
 
-def render(size):
+H_CELLS = cells(H_ROWS, H_ORIGIN)
+T_CELLS = cells(T_ROWS, T_ORIGIN)
+
+
+def distance_field(cell_set):
+    """Distance (in grid units) from each sample point to the nearest lit cell."""
+    rects = [(cx, cy, cx + 1, cy + 1) for cx, cy in cell_set]
+    field = []
+    for j in range(FIELD):
+        gy = (j + 0.5) / FIELD * GRID
+        for i in range(FIELD):
+            gx = (i + 0.5) / FIELD * GRID
+            best = 1e9
+            for x0, y0, x1, y1 in rects:
+                dx = x0 - gx if gx < x0 else (gx - x1 if gx > x1 else 0.0)
+                dy = y0 - gy if gy < y0 else (gy - y1 if gy > y1 else 0.0)
+                d = dx * dx + dy * dy
+                if d < best:
+                    best = d
+                    if d == 0.0:
+                        break
+            field.append(math.sqrt(best))
+    return field
+
+
+def sample(field, u, v):
+    """Bilinear sample of a FIELD x FIELD distance map at u, v in 0..1."""
+    fx = min(FIELD - 1.001, max(0.0, u * FIELD - 0.5))
+    fy = min(FIELD - 1.001, max(0.0, v * FIELD - 0.5))
+    i, j = int(fx), int(fy)
+    tx, ty = fx - i, fy - j
+    a = field[j * FIELD + i]
+    b = field[j * FIELD + i + 1]
+    c = field[(j + 1) * FIELD + i]
+    d = field[(j + 1) * FIELD + i + 1]
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty
+
+
+def render(size, fh, ft):
     px = []
     for y in range(size):
         v = (y + 0.5) / size
+        gy = int(v * GRID)
         for x in range(size):
             u = (x + 0.5) / size
-            px.append(shade(u, v))
+            gx = int(u * GRID)
+            cell = (gx, gy)
+
+            lit = PINK if cell in H_CELLS else CYAN if cell in T_CELLS else None
+            if lit:
+                # Darken a seam around every cell so the individual pixels of the
+                # letterform stay visible -- this is what reads as "pixel art"
+                # rather than just a bold sans-serif H and T.
+                fx, fy = u * GRID - gx, v * GRID - gy
+                edge = min(fx, 1.0 - fx, fy, 1.0 - fy)
+                if edge < SEAM:
+                    k = (1.0 - edge / SEAM) * SEAM_DARK
+                    lit = tuple(lit[i] + (BG[i] - lit[i]) * k for i in range(3))
+                px.append(lit)
+                continue
+
+            # solid background plus the bloom shed by each letter
+            gh = math.exp(-sample(fh, u, v) * 2.6)
+            gt = math.exp(-sample(ft, u, v) * 2.6)
+            r = BG[0] + PINK[0] * gh * 0.55 + CYAN[0] * gt * 0.55
+            g = BG[1] + PINK[1] * gh * 0.55 + CYAN[1] * gt * 0.55
+            b = BG[2] + PINK[2] * gh * 0.55 + CYAN[2] * gt * 0.55
+            px.append((min(255.0, r), min(255.0, g), min(255.0, b)))
     return px
 
 
 def box_resize(src, src_size, dst_size):
-    """Area-average resize. Handles non-integer ratios (1024 -> 180)."""
+    """Area-average resize. Handles non-integer ratios (1008 -> 180)."""
     if src_size == dst_size:
-        return [(int(c[0] + 0.5), int(c[1] + 0.5), int(c[2] + 0.5)) for c in src]
+        return [(int(c[0] + .5), int(c[1] + .5), int(c[2] + .5)) for c in src]
     scale = src_size / dst_size
     out = []
     for y in range(dst_size):
@@ -199,13 +186,15 @@ def box_resize(src, src_size, dst_size):
                     w = wx * wy
                     c = src[base + i]
                     r += c[0] * w; g += c[1] * w; b += c[2] * w; wsum += w
-            out.append((int(r / wsum + 0.5), int(g / wsum + 0.5), int(b / wsum + 0.5)))
+            out.append((int(r / wsum + .5), int(g / wsum + .5), int(b / wsum + .5)))
     return out
 
 
 if __name__ == "__main__":
+    print("building glow fields ...")
+    fh, ft = distance_field(H_CELLS), distance_field(T_CELLS)
     print(f"rendering {SUPER}x{SUPER} ...")
-    big = render(SUPER)
+    big = render(SUPER, fh, ft)
     for target in (512, 192, 180):
         name = f"icon-{target}.png"
         write_png(name, box_resize(big, SUPER, target), target, target)

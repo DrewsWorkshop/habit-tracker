@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#07060e">
-<meta name="description" content="Neon Habits — an offline synthwave habit tracker.">
-<title>NEON HABITS</title>
+<meta name="description" content="Habit Tracker — an offline synthwave habit tracker.">
+<title>Habit Tracker</title>
 
 <!-- Home Screen / standalone app behaviour on iOS -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Neon Habits">
+<meta name="apple-mobile-web-app-title" content="Habit Tracker">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -372,7 +372,7 @@ td.hot{color:var(--pink);text-shadow:0 0 8px rgba(255,46,151,.7);}
 
 <div id="app">
   <header>
-    <div id="title">◈ NEON <b>HABITS</b></div>
+    <div id="title">◈ HABIT <b>TRACKER</b></div>
     <button class="icon-btn" id="btnSettings" aria-label="Settings">⚙</button>
   </header>
 
@@ -523,7 +523,7 @@ td.hot{color:var(--pink);text-shadow:0 0 8px rgba(255,46,151,.7);}
 <script>
 "use strict";
 /* ============================================================================
-   NEON HABITS — offline single-file habit tracker
+   HABIT TRACKER — offline single-file habit tracker
    Data model:
      state = {
        v: 1,
@@ -533,7 +533,8 @@ td.hot{color:var(--pink);text-shadow:0 0 8px rgba(255,46,151,.7);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
-const KEY = "neon-habits.v1";
+const KEY = "habit-tracker.v1";
+const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
 const PALETTE = ["#ff2e97","#00e5ff","#b06cff","#ffe066","#00ff9d","#ff7a3c","#ff5edb","#5b8cff"];
 const DOW = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
@@ -571,7 +572,13 @@ function blank(){ return { v:1, habits:[], log:{} }; }
 
 function load(){
   try{
-    const raw = localStorage.getItem(KEY);
+    let raw = localStorage.getItem(KEY);
+    if (raw == null){
+      for (const k of OLD_KEYS){
+        const old = localStorage.getItem(k);
+        if (old != null){ raw = old; localStorage.setItem(KEY, old); break; }
+      }
+    }
     if (!raw) return blank();
     const s = JSON.parse(raw);
     if (!s || typeof s !== "object" || !Array.isArray(s.habits)) return blank();
@@ -1342,7 +1349,7 @@ function download(name, text, type){
 document.getElementById("btnCsv").onclick = () => {
   clearCache();
   if (!state.habits.length){ toast("NOTHING TO EXPORT"); return; }
-  download(`neon-habits-${todayYmd()}.csv`, buildCsv(), "text/csv")
+  download(`habit-tracker-${todayYmd()}.csv`, buildCsv(), "text/csv")
     ? toast("CSV EXPORTED") : toast("EXPORT BLOCKED");
 };
 document.getElementById("btnCsvCopy").onclick = async () => {
@@ -1358,7 +1365,7 @@ document.getElementById("btnCsvCopy").onclick = async () => {
   }
 };
 document.getElementById("btnJson").onclick = () => {
-  download(`neon-habits-backup-${todayYmd()}.json`,
+  download(`habit-tracker-backup-${todayYmd()}.json`,
            JSON.stringify(state, (k, v) => k === "_start" ? undefined : v, 2),
            "application/json") ? toast("BACKUP SAVED") : toast("EXPORT BLOCKED");
 };
