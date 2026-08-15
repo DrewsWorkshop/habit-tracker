@@ -71,7 +71,8 @@ button{background:none;border:none;padding:0;cursor:pointer;touch-action:manipul
 /* ============================================================
    SHELL
    ============================================================ */
-#app{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100%;}
+#app{position:relative;z-index:1;display:flex;flex-direction:column;
+  min-height:100%;min-height:100dvh;}   /* dvh keeps iOS honest about toolbars */
 
 header{
   position:sticky;top:0;z-index:20;
@@ -285,14 +286,23 @@ td.hot{color:var(--ink);}
 #veil.on{display:block;}
 .sheet{
   position:fixed;left:0;right:0;bottom:0;z-index:50;
+  display:none;
   max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   padding:16px 14px calc(20px + var(--safe-bot));
   background:#000;
   border-top:1px solid var(--green);
   border-radius:0;
-  transform:translateY(102%);transition:transform .18s linear;
 }
-.sheet.on{transform:none;}
+/* Shown by toggling display, NOT by sliding a transform: on iOS a text input
+   inside a position:fixed element that carries a transform cannot be focused. */
+.sheet.on{display:block;}
+/* The habit editor holds the name field, so anchor it to the top of the screen
+   where the iOS keyboard cannot cover it. */
+#sheetHabit{
+  top:0;bottom:auto;
+  padding:calc(var(--safe-top) + 16px) 14px 20px;
+  border-top:none;border-bottom:1px solid var(--green);
+}
 .sheet h2{margin:0 0 14px;font-size:11px;letter-spacing:.22em;color:var(--green-hi);
   font-weight:400;display:flex;align-items:center;}
 .sheet h2 .x{margin-left:auto;color:var(--dim);font-size:15px;width:28px;height:28px;
@@ -336,9 +346,7 @@ td.hot{color:var(--ink);}
         <div id="dayprog"><i></i></div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn ghost" id="btnToday" style="letter-spacing:.14em">TODAY</button>
-          <button class="btn ghost" id="btnPick" style="letter-spacing:.14em">JUMP ▾</button>
         </div>
-        <input type="date" id="datePick" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none">
       </div>
 
       <div class="panel" id="habitPanel">
@@ -356,6 +364,7 @@ td.hot{color:var(--ink);}
     <section class="view" id="v-graphs">
       <div class="panel">
         <div class="seg" id="rangeSeg">
+          <button data-r="7">7D</button>
           <button data-r="30">30D</button>
           <button data-r="90" class="on">90D</button>
           <button data-r="365">1Y</button>
@@ -385,7 +394,7 @@ td.hot{color:var(--ink);}
       </div>
 
       <div class="panel">
-        <div class="panel-h">PER HABIT <span class="sub">7-day rolling rate</span></div>
+        <div class="panel-h">PER HABIT <span class="sub" id="phSub"></span></div>
         <div id="habitLines"></div>
       </div>
     </section>
@@ -481,6 +490,7 @@ td.hot{color:var(--ink);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
+const BUILD = "2026-08-14e";   // shown in Settings, so a stale cache is obvious
 const KEY = "habit-tracker.v1";
 const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
@@ -953,14 +963,18 @@ function drawHabitLines(){
     return;
   }
   const days = scopeDays();
+  // label the actual span in scope, which is clamped to the data we hold
+  document.getElementById("phSub").textContent = days.length + "-day completion";
   state.habits.forEach(h => {
     const series = rolling(days, 7, h.id);
-    const last = [...series].reverse().find(v => v != null);
+    // headline figure is completion across the selected range, so the range
+    // buttons drive this section the same way they drive the other charts
+    const rate = rateOver(days, h.id);
     const row = document.createElement("div");
     row.className = "hline";
     row.style.setProperty("--hc", h.color);
     row.innerHTML = `<div class="meta"><div class="nm">${esc(h.name)}</div>`
-                  + `<div class="pc">${last==null ? "–" : Math.round(last*100)+"%"}</div></div>`
+                  + `<div class="pc">${pct(rate)}</div></div>`
                   + `<div class="spark"></div>`;
     host.appendChild(row);
 
@@ -1194,7 +1208,8 @@ function openHabit(id){
   document.getElementById("hDelete").style.display = h ? "flex" : "none";
   paintSwatches();
   openSheet("sheetHabit");
-  if (!h) setTimeout(() => document.getElementById("hName").focus(), 320);
+  // No programmatic focus: on iOS it cannot summon the keyboard outside a user
+  // gesture, and it leaves the field focused so the user's own tap does nothing.
 }
 function paintSwatches(){
   const box = document.getElementById("hColors");
@@ -1343,9 +1358,9 @@ function dataStat(){
   let checks = 0;
   for (const d in state.log) checks += Object.keys(state.log[d]).length;
   const bytes = (localStorage.getItem(KEY) || "").length;
-  document.getElementById("dataStat").textContent =
+  document.getElementById("dataStat").innerHTML =
     `${state.habits.length} habits · ${Object.keys(state.log).length} logged days · `
-  + `${checks} checks · ${(bytes/1024).toFixed(1)} KB`;
+  + `${checks} checks · ${(bytes/1024).toFixed(1)} KB<br>build ${BUILD}`;
 }
 
 /* ============================================================================
@@ -1371,17 +1386,6 @@ document.getElementById("btnEdit").onclick  = e => {
   renderHabits();
 };
 document.getElementById("btnToday").onclick = () => { ui.date = todayYmd(); renderLog(); };
-document.getElementById("btnPick").onclick  = () => {
-  const inp = document.getElementById("datePick");
-  inp.value = ui.date; inp.max = todayYmd();
-  inp.style.pointerEvents = "auto";
-  if (inp.showPicker) { try { inp.showPicker(); return; } catch(e){} }
-  inp.style.position = "static"; inp.style.opacity = "1";
-  inp.style.width = "100%"; inp.style.height = "auto"; inp.focus();
-};
-document.getElementById("datePick").onchange = e => {
-  if (e.target.value){ ui.date = e.target.value; renderLog(); }
-};
 document.getElementById("btnSettings").onclick = () => { clearCache(); dataStat(); openSheet("sheetSettings"); };
 document.getElementById("rangeSeg").onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
