@@ -284,25 +284,27 @@ td.hot{color:var(--ink);}
    ============================================================ */
 #veil{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.82);display:none;}
 #veil.on{display:block;}
+/* Sheets are position:ABSOLUTE, not fixed, and carry no transform.
+   Both matter on iOS: a text input inside a position:fixed element cannot be
+   focused when the app runs standalone from the Home Screen (it works fine in
+   Safari, which is what makes the bug so easy to miss), and a transform on a
+   fixed ancestor breaks focus too. Absolute keeps the field in normal document
+   flow, where focus and the keyboard behave. Anchored to the top so the
+   keyboard cannot cover the field; openSheet scrolls to top first. */
 .sheet{
-  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  position:absolute;left:0;right:0;top:0;z-index:50;
   display:none;
-  max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
-  padding:16px 14px calc(20px + var(--safe-bot));
+  /* absolute elements are out of flow and add no document height, so bound the
+     sheet to the viewport and let it scroll internally — otherwise the bottom
+     of a long sheet (Settings) would be unreachable */
+  max-height:100vh; max-height:100dvh;
+  overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:calc(var(--safe-top) + 16px) 14px calc(20px + var(--safe-bot));
   background:#000;
-  border-top:1px solid var(--green);
+  border-bottom:1px solid var(--green);
   border-radius:0;
 }
-/* Shown by toggling display, NOT by sliding a transform: on iOS a text input
-   inside a position:fixed element that carries a transform cannot be focused. */
 .sheet.on{display:block;}
-/* The habit editor holds the name field, so anchor it to the top of the screen
-   where the iOS keyboard cannot cover it. */
-#sheetHabit{
-  top:0;bottom:auto;
-  padding:calc(var(--safe-top) + 16px) 14px 20px;
-  border-top:none;border-bottom:1px solid var(--green);
-}
 .sheet h2{margin:0 0 14px;font-size:11px;letter-spacing:.22em;color:var(--green-hi);
   font-weight:400;display:flex;align-items:center;}
 .sheet h2 .x{margin-left:auto;color:var(--dim);font-size:15px;width:28px;height:28px;
@@ -490,7 +492,7 @@ td.hot{color:var(--ink);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
-const BUILD = "2026-08-14e";   // shown in Settings, so a stale cache is obvious
+const BUILD = "2026-08-14f";   // shown in Settings, so a stale cache is obvious
 const KEY = "habit-tracker.v1";
 const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
@@ -1188,6 +1190,10 @@ function render(){
    SHEETS
    ========================================================================== */
 function openSheet(id){
+  // sheets are absolutely positioned at the document top, so bring the viewport
+  // there before showing one. Scrolling is deliberately left unlocked so iOS can
+  // scroll a focused field into view when the keyboard opens.
+  window.scrollTo(0, 0);
   document.getElementById("veil").classList.add("on");
   document.getElementById(id).classList.add("on");
 }
@@ -1358,9 +1364,12 @@ function dataStat(){
   let checks = 0;
   for (const d in state.log) checks += Object.keys(state.log[d]).length;
   const bytes = (localStorage.getItem(KEY) || "").length;
+  const standalone = window.navigator.standalone === true
+    || matchMedia("(display-mode: standalone)").matches;
   document.getElementById("dataStat").innerHTML =
     `${state.habits.length} habits · ${Object.keys(state.log).length} logged days · `
-  + `${checks} checks · ${(bytes/1024).toFixed(1)} KB<br>build ${BUILD}`;
+  + `${checks} checks · ${(bytes/1024).toFixed(1)} KB<br>`
+  + `build ${BUILD} · ${standalone ? "home screen" : "browser"}`;
 }
 
 /* ============================================================================
