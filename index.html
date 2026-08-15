@@ -321,6 +321,26 @@ td.hot{color:var(--ink);}
   font-weight:400;display:flex;align-items:center;}
 .sheet h2 .x{margin-left:auto;color:var(--dim);font-size:15px;width:28px;height:28px;
   border:1px solid var(--line);display:flex;align-items:center;justify-content:center;}
+/* tap-to-type keypad — plain buttons, so it works with no system keyboard */
+#hKeys{display:none;margin-top:10px;}
+#hKeys.on{display:block;}
+.krow{display:flex;gap:4px;margin-bottom:4px;}
+.key{
+  flex:1 1 0;min-width:0;height:40px;border:1px solid var(--line);border-radius:0;
+  background:#000;color:var(--green);font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+}
+.key:active{background:var(--green);color:#000;}
+.key.on{background:var(--green);color:#000;}
+.key.wide{flex:3 1 0;font-size:10px;letter-spacing:.14em;}
+
+#hPresets{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+.chip{
+  border:1px solid var(--line);border-radius:0;background:#000;color:var(--dim);
+  padding:7px 9px;font-size:10.5px;letter-spacing:.05em;
+}
+.chip:active{background:var(--green);color:#000;}
+
 .swatches{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
 .sw{width:32px;height:32px;border-radius:0;border:1px solid var(--line);background:var(--c);opacity:.4;}
 .sw.on{opacity:1;border-color:var(--text);}
@@ -383,11 +403,15 @@ td.hot{color:var(--ink);}
           <input type="text" id="hName" maxlength="40" placeholder="e.g. Morning run"
                  autocomplete="off" autocapitalize="sentences" autocorrect="off"
                  spellcheck="false" enterkeyhint="done">
-          <!-- Escape hatch: a native prompt always raises the iOS keyboard, even
-               if the inline field somehow will not focus. -->
-          <button class="btn ghost" id="hPrompt" style="margin-top:8px;font-size:10.5px">
-            ⌨ TYPE WITH SYSTEM KEYBOARD
-          </button>
+          <!-- Escape hatches for when the OS keyboard will not appear at all:
+               a native prompt, and a tap-to-type keypad drawn by this page,
+               which needs no system keyboard whatsoever. -->
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn ghost" id="hPrompt" style="font-size:10px">⌨ SYSTEM</button>
+            <button class="btn ghost" id="hKeysToggle" style="font-size:10px">⌗ TAP-TO-TYPE</button>
+          </div>
+          <div id="hKeys"></div>
+          <div id="hPresets"></div>
         </div>
         <div class="field">
           <label class="fl">COLOR</label>
@@ -515,7 +539,7 @@ td.hot{color:var(--ink);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
-const BUILD = "2026-08-14h";   // shown in the header, so a stale cache is obvious
+const BUILD = "2026-08-14i";   // shown in the header, so a stale cache is obvious
 const KEY = "habit-tracker.v1";
 const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
@@ -1237,6 +1261,10 @@ function openHabit(id){
   ui.editColor = h ? h.color : PALETTE[state.habits.length % PALETTE.length];
   document.getElementById("hDelete").style.display = h ? "flex" : "none";
   paintSwatches();
+  buildPresets();
+  kbShift = true;                                  // fresh name starts capitalised
+  const ks = document.getElementById("kShift");
+  if (ks) ks.classList.add("on");
   document.getElementById("v-log").classList.add("composing");
   window.scrollTo(0, 0);
   // No programmatic focus: on iOS it cannot summon the keyboard outside a user
@@ -1276,6 +1304,75 @@ document.getElementById("hPrompt").onclick = () => {
   const v = window.prompt("Habit name", f.value || "");
   if (v !== null) f.value = v.trim().slice(0, 40);
 };
+
+/* ---------- tap-to-type keypad ----------
+   Drawn by this page as ordinary buttons, so it needs no system keyboard.
+   Writes straight into the name field; the field never has to take focus. */
+const KEY_ROWS = ["1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+let kbShift = true;   // capitalise the first letter, like a phone keyboard
+
+function insertChar(ch){
+  const f = document.getElementById("hName");
+  if (f.value.length >= 40) return;
+  const letter = /[A-Z]/.test(ch);
+  f.value += (letter && !kbShift) ? ch.toLowerCase() : ch;
+  if (letter && kbShift){
+    kbShift = false;
+    const s = document.getElementById("kShift");
+    if (s) s.classList.remove("on");
+  }
+}
+function buildKeys(){
+  const host = document.getElementById("hKeys");
+  host.innerHTML = "";
+  KEY_ROWS.forEach(row => {
+    const r = document.createElement("div");
+    r.className = "krow";
+    [...row].forEach(ch => {
+      const b = document.createElement("button");
+      b.className = "key"; b.textContent = ch;
+      b.onclick = () => insertChar(ch);
+      r.appendChild(b);
+    });
+    host.appendChild(r);
+  });
+  const r = document.createElement("div");
+  r.className = "krow";
+  const shift = document.createElement("button");
+  shift.className = "key" + (kbShift ? " on" : ""); shift.id = "kShift"; shift.textContent = "⇧";
+  shift.onclick = () => { kbShift = !kbShift; shift.classList.toggle("on", kbShift); };
+  const space = document.createElement("button");
+  space.className = "key wide"; space.textContent = "SPACE";
+  space.onclick = () => insertChar(" ");
+  const back = document.createElement("button");
+  back.className = "key"; back.textContent = "⌫";
+  back.onclick = () => { const f = document.getElementById("hName"); f.value = f.value.slice(0, -1); };
+  const clear = document.createElement("button");
+  clear.className = "key"; clear.textContent = "✕";
+  clear.onclick = () => { document.getElementById("hName").value = ""; kbShift = true;
+                          const s = document.getElementById("kShift"); if (s) s.classList.add("on"); };
+  r.append(shift, space, back, clear);
+  host.appendChild(r);
+}
+document.getElementById("hKeysToggle").onclick = () => {
+  const k = document.getElementById("hKeys");
+  if (!k.children.length) buildKeys();
+  k.classList.toggle("on");
+};
+
+/* one-tap starter names, so a habit can be created with no typing at all */
+const PRESETS = ["Exercise","Read","Meditate","Water","Walk","Stretch",
+                 "Journal","Vitamins","Sleep 8h","No sugar","Guitar","Study"];
+function buildPresets(){
+  const host = document.getElementById("hPresets");
+  host.innerHTML = "";
+  PRESETS.forEach(name => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = name;
+    b.onclick = () => { document.getElementById("hName").value = name; };
+    host.appendChild(b);
+  });
+}
 document.getElementById("hDelete").onclick = () => {
   const h = state.habits.find(x => x.id === ui.editId);
   if (!h) return;
