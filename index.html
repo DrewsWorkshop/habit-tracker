@@ -512,6 +512,8 @@ td.hot{color:var(--ink);}
   <div class="hint" id="dataStat" style="margin-bottom:14px"></div>
   <button class="btn cy" id="btnCsv">⤓ EXPORT CSV</button>
   <button class="btn ghost" id="btnCsvCopy">⧉ COPY CSV TO CLIPBOARD</button>
+  <button class="btn ghost" id="btnCsvIn">⤒ REPLACE FROM CSV</button>
+  <input type="file" id="fileCsv" accept=".csv,text/csv,text/plain" style="display:none">
   <button class="btn ghost" id="btnJson">⤓ BACKUP (JSON)</button>
   <button class="btn ghost" id="btnImport">⤒ RESTORE FROM BACKUP</button>
   <input type="file" id="fileImport" accept=".json,application/json" style="display:none">
@@ -539,7 +541,7 @@ td.hot{color:var(--ink);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
-const BUILD = "2026-08-14i";   // shown in the header, so a stale cache is obvious
+const BUILD = "2026-08-14j";   // shown in the header, so a stale cache is obvious
 const KEY = "habit-tracker.v1";
 const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
@@ -1433,6 +1435,106 @@ document.getElementById("btnCsvCopy").onclick = async () => {
     toast("SELECT & COPY");
   }
 };
+/* ---------- CSV import ----------
+   Reads the long format this app exports (date,weekday,habit_id,habit_name,
+   completed) but tolerates reordered, renamed or missing optional columns, so a
+   sheet edited in Excel still loads. */
+function parseCsv(text){
+  const rows = []; let row = [], cell = "", quoted = false;
+  text = text.replace(/^﻿/, "");            // strip BOM
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (quoted){
+      if (c === '"'){
+        if (text[i+1] === '"'){ cell += '"'; i++; }   // escaped quote
+        else quoted = false;
+      } else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ","){ row.push(cell); cell = ""; }
+    else if (c === "\n"){ row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (c !== "\r") cell += c;
+  }
+  if (cell.length || row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r => r.length && !(r.length === 1 && !r[0].trim()));
+}
+
+const TRUE_WORDS = ["1","true","yes","y","x","t","done","complete","completed"];
+const isTrue = v => TRUE_WORDS.includes(String(v).trim().toLowerCase());
+
+function normDate(s){
+  const m = /^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/.exec(String(s).trim());
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const dt = new Date(y, mo - 1, d);
+  // reject impossible dates such as 2026-02-31
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return `${y}-${pad(mo)}-${pad(d)}`;
+}
+
+function importCsv(text){
+  const rows = parseCsv(text);
+  if (rows.length < 2) throw new Error("the file has no data rows");
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const col = (...names) => { for (const n of names){ const i = head.indexOf(n); if (i >= 0) return i; } return -1; };
+  const iDate = col("date","day");
+  const iName = col("habit_name","habit","name");
+  const iId   = col("habit_id","id");
+  const iDone = col("completed","complete","done","value","checked");
+  if (iDate < 0) throw new Error('no "date" column');
+  if (iName < 0 && iId < 0) throw new Error('no "habit_name" column');
+  if (iDone < 0) throw new Error('no "completed" column');
+
+  const byKey = new Map(), log = {};
+  let checks = 0, skipped = 0;
+  for (const r of rows.slice(1)){
+    const d = normDate(r[iDate]);
+    const name = (iName >= 0 ? (r[iName] || "") : "").trim();
+    const id   = (iId   >= 0 ? (r[iId]   || "") : "").trim();
+    const key  = id || name.toLowerCase();
+    if (!d || !key){ skipped++; continue; }
+    let h = byKey.get(key);
+    if (!h){
+      h = { id: uid(), name: name || key, color: null, created: d, order: byKey.size };
+      byKey.set(key, h);
+    }
+    if (name) h.name = name;                 // prefer the readable name
+    if (d < h.created) h.created = d;
+    if (isTrue(r[iDone])){ (log[d] = log[d] || {})[h.id] = 1; checks++; }
+  }
+  const habits = [...byKey.values()];
+  if (!habits.length) throw new Error("no habits found in the file");
+  habits.forEach((h, i) => {
+    // keep the colour a habit of the same name already had
+    const prev = state.habits.find(x => x.name.toLowerCase() === h.name.toLowerCase());
+    h.color = prev ? prev.color : PALETTE[i % PALETTE.length];
+    h.order = i;
+  });
+  return { habits, log, checks, skipped, days: Object.keys(log).length };
+}
+
+document.getElementById("btnCsvIn").onclick = () => document.getElementById("fileCsv").click();
+document.getElementById("fileCsv").onchange = ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    let res;
+    try{ res = importCsv(String(r.result)); }
+    catch(e){ alert("Could not read that CSV: " + e.message); return; }
+    const msg = "Replace ALL current data with this file?\n\n"
+      + `${res.habits.length} habits\n${res.days} logged days\n${res.checks} checks`
+      + (res.skipped ? `\n${res.skipped} rows skipped (unreadable date or habit)` : "")
+      + "\n\nYour current data will be overwritten. This cannot be undone.";
+    if (!confirm(msg)) return;
+    state = { v:1, habits:res.habits, log:res.log };
+    save(); clearCache(); closeSheets();
+    ui.date = todayYmd(); render();
+    toast(`IMPORTED ${res.habits.length} HABITS`);
+  };
+  r.readAsText(f);
+  ev.target.value = "";
+};
+
 document.getElementById("btnJson").onclick = () => {
   download(`habit-tracker-backup-${todayYmd()}.json`,
            JSON.stringify(state, (k, v) => k === "_start" ? undefined : v, 2),

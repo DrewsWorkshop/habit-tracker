@@ -34,9 +34,35 @@ From the ⚙ menu:
 - **Export CSV** — long format, one row per habit per day:
   `date,weekday,habit_id,habit_name,completed`
 - **Copy CSV to clipboard** — for when iOS blocks the download
+- **Replace from CSV** — import a CSV, replacing everything (see below)
 - **Backup / restore (JSON)** — full round-trip of your data
 - **Load demo data** — ~150 days of plausible history, to see the graphs populated
 - **Erase everything**
+
+### CSV import
+
+Reads the format above and round-trips it exactly, but is deliberately lenient
+so a sheet edited in Excel still loads:
+
+- **Required columns:** a date (`date` or `day`), a habit (`habit_name`,
+  `habit`, `name`, or `habit_id`), and a completion (`completed`, `complete`,
+  `done`, `value`, or `checked`). Order does not matter and extra columns are
+  ignored.
+- **Dates:** `YYYY-MM-DD`, `YYYY/MM/DD` or `YYYY.MM.DD`. Impossible dates such
+  as `2026-02-31` are rejected rather than silently rolled over.
+- **Completion:** `1`, `true`, `yes`, `y`, `x`, `t`, `done`, `complete` and
+  `completed` all count as done (case-insensitive); anything else counts as not
+  done.
+- Quoted fields, embedded commas, `""` escapes, CRLF endings and a UTF-8 BOM are
+  all handled.
+- Habits are created from the rows themselves, each starting at its earliest
+  date in the file. A habit whose name matches one you already have keeps its
+  colour; the rest are assigned from the palette.
+- Unreadable rows are skipped and counted, and the confirmation dialog reports
+  the totals — habits, days, checks, rows skipped — **before** anything is
+  overwritten.
+
+> Import **replaces** all current data. Take a JSON backup first.
 
 A habit counts from the earlier of its creation date and its first logged entry,
 so backfilling into the past never drags your rates down.
