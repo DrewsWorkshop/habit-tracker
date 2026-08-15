@@ -102,6 +102,12 @@ main{flex:1;display:flex;flex-direction:column;
    buttons float well above the tab bar. */
 #v-log.on{display:flex;flex-direction:column;}
 #habitPanel{flex:1 0 auto;}
+/* the inline habit editor takes over the Log screen while it is open */
+#habitEditor{display:none;}
+#v-log.composing #dayPanel,
+#v-log.composing #habitPanel,
+#v-log.composing #logActions{display:none;}
+#v-log.composing #habitEditor{display:block;flex:1 0 auto;}
 
 /* tab bar */
 #tabbar{
@@ -339,7 +345,7 @@ td.hot{color:var(--ink);}
   <main>
     <!-- ============ LOG ============ -->
     <section class="view on" id="v-log">
-      <div class="panel">
+      <div class="panel" id="dayPanel">
         <div id="daystrip"></div>
         <div id="dayhead">
           <span id="dayname">—</span>
@@ -356,9 +362,31 @@ td.hot{color:var(--ink);}
         <div id="habitList"></div>
       </div>
 
-      <div class="btn-row">
+      <div class="btn-row" id="logActions">
         <button class="btn cy" id="btnAdd">+ NEW HABIT</button>
         <button class="btn ghost" id="btnEdit" style="flex:0 0 96px">EDIT</button>
+      </div>
+
+      <!-- The habit editor is a normal in-flow panel, NOT an overlay. iOS
+           standalone mode mishandles focus for inputs inside positioned
+           overlays, so this field stays in ordinary document flow. -->
+      <div class="panel" id="habitEditor">
+        <div class="panel-h"><span id="shTitle">NEW HABIT</span></div>
+        <div class="field">
+          <label class="fl" for="hName">NAME</label>
+          <input type="text" id="hName" maxlength="40" placeholder="e.g. Morning run"
+                 autocomplete="off" autocapitalize="sentences" autocorrect="off"
+                 spellcheck="false" enterkeyhint="done">
+        </div>
+        <div class="field">
+          <label class="fl">COLOR</label>
+          <div class="swatches" id="hColors"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn cy" id="hSave">SAVE</button>
+          <button class="btn ghost" id="hCancel" style="flex:0 0 104px">CANCEL</button>
+        </div>
+        <button class="btn danger" id="hDelete" style="display:none;margin-top:8px">DELETE HABIT</button>
       </div>
     </section>
 
@@ -443,22 +471,6 @@ td.hot{color:var(--ink);}
 
 <div id="veil"></div>
 
-<!-- habit editor sheet -->
-<div class="sheet" id="sheetHabit">
-  <h2><span id="shTitle">NEW HABIT</span><button class="x" data-close>✕</button></h2>
-  <div class="field">
-    <label class="fl">NAME</label>
-    <input type="text" id="hName" maxlength="40" placeholder="e.g. Morning run" autocomplete="off"
-           autocapitalize="sentences" enterkeyhint="done">
-  </div>
-  <div class="field">
-    <label class="fl">COLOR</label>
-    <div class="swatches" id="hColors"></div>
-  </div>
-  <button class="btn" id="hSave">SAVE</button>
-  <button class="btn danger" id="hDelete" style="display:none">DELETE HABIT</button>
-</div>
-
 <!-- settings sheet -->
 <div class="sheet" id="sheetSettings">
   <h2><span>SETTINGS &amp; DATA</span><button class="x" data-close>✕</button></h2>
@@ -492,7 +504,7 @@ td.hot{color:var(--ink);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
-const BUILD = "2026-08-14f";   // shown in Settings, so a stale cache is obvious
+const BUILD = "2026-08-14g";   // shown in Settings, so a stale cache is obvious
 const KEY = "habit-tracker.v1";
 const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
@@ -1174,6 +1186,7 @@ function drawRolling(){
    VIEW SWITCHING
    ========================================================================== */
 function switchView(v){
+  if (v !== "log") closeHabitEditor();   // don't leave a half-typed habit behind
   ui.view = v;
   document.querySelectorAll(".view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.v === v));
@@ -1213,9 +1226,14 @@ function openHabit(id){
   ui.editColor = h ? h.color : PALETTE[state.habits.length % PALETTE.length];
   document.getElementById("hDelete").style.display = h ? "flex" : "none";
   paintSwatches();
-  openSheet("sheetHabit");
+  document.getElementById("v-log").classList.add("composing");
+  window.scrollTo(0, 0);
   // No programmatic focus: on iOS it cannot summon the keyboard outside a user
   // gesture, and it leaves the field focused so the user's own tap does nothing.
+}
+function closeHabitEditor(){
+  document.getElementById("v-log").classList.remove("composing");
+  document.getElementById("hName").blur();
 }
 function paintSwatches(){
   const box = document.getElementById("hColors");
@@ -1239,8 +1257,9 @@ document.getElementById("hSave").onclick = () => {
     state.habits.push({ id:uid(), name, color:ui.editColor,
       created:ui.date < todayYmd() ? ui.date : todayYmd(), order:state.habits.length });
   }
-  save(); closeSheets(); clearCache(); render(); toast("SAVED");
+  save(); closeHabitEditor(); clearCache(); render(); toast("SAVED");
 };
+document.getElementById("hCancel").onclick = () => closeHabitEditor();
 document.getElementById("hDelete").onclick = () => {
   const h = state.habits.find(x => x.id === ui.editId);
   if (!h) return;
@@ -1250,7 +1269,7 @@ document.getElementById("hDelete").onclick = () => {
     delete state.log[d][ui.editId];
     if (!Object.keys(state.log[d]).length) delete state.log[d];
   }
-  save(); closeSheets(); clearCache(); render(); toast("DELETED");
+  save(); closeHabitEditor(); clearCache(); render(); toast("DELETED");
 };
 
 /* ============================================================================
