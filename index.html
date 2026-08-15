@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#07060e">
+<!-- iOS Home Screen web apps hold on to the start page aggressively; discourage it -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="description" content="Habit Tracker — an offline synthwave habit tracker.">
 <title>Habit Tracker</title>
 
@@ -86,6 +90,7 @@ header{
   color:var(--green-hi);
 }
 #title b{color:var(--ink);font-weight:400;}
+#buildTag{font-size:8px;letter-spacing:.08em;color:var(--dimmer);}
 .icon-btn{
   width:36px;height:36px;border:1px solid var(--line);border-radius:0;
   background:#000;color:var(--green);font-size:15px;
@@ -177,6 +182,7 @@ input[type=text], input[type=date], select, textarea{
   width:100%;padding:11px;border-radius:0;
   border:1px solid var(--line);background:#000;color:var(--text);
   outline:none;letter-spacing:.06em;
+  font-size:16px;   /* below 16px iOS zooms the page on focus */
 }
 input[type=text]:focus, select:focus{border-color:var(--green);}
 label.fl{display:block;font-size:10px;letter-spacing:.20em;color:var(--dim);margin:0 0 6px;}
@@ -338,7 +344,7 @@ td.hot{color:var(--ink);}
 
 <div id="app">
   <header>
-    <div id="title">◈ HABIT <b>TRACKER</b></div>
+    <div id="title">◈ HABIT <b>TRACKER</b> <span id="buildTag"></span></div>
     <button class="icon-btn" id="btnSettings" aria-label="Settings">⚙</button>
   </header>
 
@@ -377,6 +383,11 @@ td.hot{color:var(--ink);}
           <input type="text" id="hName" maxlength="40" placeholder="e.g. Morning run"
                  autocomplete="off" autocapitalize="sentences" autocorrect="off"
                  spellcheck="false" enterkeyhint="done">
+          <!-- Escape hatch: a native prompt always raises the iOS keyboard, even
+               if the inline field somehow will not focus. -->
+          <button class="btn ghost" id="hPrompt" style="margin-top:8px;font-size:10.5px">
+            ⌨ TYPE WITH SYSTEM KEYBOARD
+          </button>
         </div>
         <div class="field">
           <label class="fl">COLOR</label>
@@ -504,7 +515,7 @@ td.hot{color:var(--ink);}
    All dates are local-time "YYYY-MM-DD" strings — no UTC drift.
    ========================================================================== */
 
-const BUILD = "2026-08-14g";   // shown in Settings, so a stale cache is obvious
+const BUILD = "2026-08-14h";   // shown in the header, so a stale cache is obvious
 const KEY = "habit-tracker.v1";
 const OLD_KEYS = ["neon-habits.v1"];   // adopted on first run after the rename
 const NS  = "http://www.w3.org/2000/svg";
@@ -1260,6 +1271,11 @@ document.getElementById("hSave").onclick = () => {
   save(); closeHabitEditor(); clearCache(); render(); toast("SAVED");
 };
 document.getElementById("hCancel").onclick = () => closeHabitEditor();
+document.getElementById("hPrompt").onclick = () => {
+  const f = document.getElementById("hName");
+  const v = window.prompt("Habit name", f.value || "");
+  if (v !== null) f.value = v.trim().slice(0, 40);
+};
 document.getElementById("hDelete").onclick = () => {
   const h = state.habits.find(x => x.id === ui.editId);
   if (!h) return;
@@ -1442,6 +1458,7 @@ addEventListener("visibilitychange", () => {
   render();
 });
 
+document.getElementById("buildTag").textContent = BUILD;
 switchView("log");
 </script>
 </body>
